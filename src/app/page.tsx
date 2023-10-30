@@ -1,95 +1,137 @@
-import Image from 'next/image'
+'use client'
+
 import styles from './page.module.css'
+import jsQR, { QRCode } from 'jsqr';
+import { useState } from 'react';
+import * as pdfjs from 'pdfjs-dist';
+import { GlobalWorkerOptions } from 'pdfjs-dist';
 
 export default function Home() {
+  const [qrData, setQrData] = useState<string | null>(null);
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file!.type === 'application/pdf') {
+      // If it's a PDF file, handle it as a PDF.
+      try {
+        const pdfData = await getPdfDataFromFile(file!);
+        const imageUrls = await extractImagesFromPDF(pdfData);
+
+        if (imageUrls.length > 0) {
+          const code = await detectQRCodeInImages(imageUrls);
+          if (code) {
+            setQrData(code.data);
+          } else {
+            setQrData(null);
+          }
+        } else {
+          setQrData(null);
+        }
+      } catch (error) {
+        console.error("Error al procesar el PDF:", error);
+        setQrData(null);
+      }
+    }if (file) {
+      const imageData = await getImageDataFromFile(file);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code) {
+        setQrData(code.data);
+      } else {
+        setQrData(null);
+      }
+    }
+  };
+
+  const getImageDataFromFile = (file: File): Promise<ImageData> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target!.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0);
+          resolve(ctx!.getImageData(0, 0, img.width, img.height));
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+  const getPdfDataFromFile = (file: File): Promise<Uint8Array> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const arrayBuffer = new Uint8Array(e.target!.result as ArrayBuffer);
+        resolve(arrayBuffer);
+      };
+      reader.onerror = (error) => {
+        reject(error);
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const extractImagesFromPDF = async (pdfData: Uint8Array): Promise<string[]> => {
+    const pdfWorkerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+    GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
+
+    const loadingTask = pdfjs.getDocument({ data: pdfData });
+    const pdfDocument = await loadingTask.promise;
+    const imageUrls: string[] = [];
+
+    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+      const page = await pdfDocument.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1 });
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({ canvasContext: context!, viewport: viewport }).promise;
+
+      const imageUrl = canvas.toDataURL('image/png');
+      imageUrls.push(imageUrl);
+    }
+
+    return imageUrls;
+  };
+
+  const detectQRCodeInImages = async (imageUrls: string[]): Promise<QRCode | null> => {
+    for (const imageUrl of imageUrls) {
+      const imageData = await getImageDataFromImageUrl(imageUrl);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
+      if (code) {
+        return code;
+      }
+    }
+    return null;
+  };
+
+  const getImageDataFromImageUrl = (imageUrl: string): Promise<ImageData> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = imageUrl;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+        resolve(ctx!.getImageData(0, 0, img.width, img.height));
+      };
+    });
+  };
   return (
     <main className={styles.main}>
-      <div className={styles.description}>
-        <p>
-          Get started by editing&nbsp;
-          <code className={styles.code}>src/app/page.tsx</code>
-        </p>
-        <div>
-          <a
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{' '}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className={styles.vercelLogo}
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
-        </div>
-      </div>
-
-      <div className={styles.center}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className={styles.grid}>
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Docs <span>-&gt;</span>
-          </h2>
-          <p>Find in-depth information about Next.js features and API.</p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Learn <span>-&gt;</span>
-          </h2>
-          <p>Learn about Next.js in an interactive course with&nbsp;quizzes!</p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Templates <span>-&gt;</span>
-          </h2>
-          <p>Explore the Next.js 13 playground.</p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Deploy <span>-&gt;</span>
-          </h2>
-          <p>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
+      <input type="file" id="qr-input" onChange={handleFileChange} ></input>
+      {qrData ? (
+        <p>Contenido del código QR: {qrData}</p>
+      ) : (
+        <p>No se encontró un código QR en la imagen.</p>
+      )}
     </main>
   )
 }
